@@ -34,7 +34,7 @@ this only expects a json paylod with only name as a key and a string as the valu
     }
 ---------------------------------------
 */
-get hello(
+get hello[](
     name: str
 ){
     
@@ -116,4 +116,68 @@ get hello_json[](
     respond Status.OK format("Hello, {}", name)
 }
 
+// other methods are also supported
+// post, put, patch, delete
+```
+
+### Loops
+```
+while <condition> {
+    ...
+}
+
+for <identifier> in <iterable> {
+    ...
+}
+```
+
+### Conditionals
+```
+if <condition> {
+    ...
+} else if <condition> {
+    ...
+} else {
+    ...
+}
+```
+
+### Comments
+```
+// single line comment
+/* 
+    multi line comment
+*/
+```
+
+### Imports
+```
+import <path>
+from <path> import <identifier>
+```
+
+### Structs
+```
+struct <name> {
+    <identifier>: <type>
+}
+
+// example
+struct Person {
+    name: str
+    age: int
+}
+
+
+// structs can also be used as an argument type for methods
+// example
+struct Person {
+    name: str
+    age: int
+}
+
+// created a handler for a get request on the /say_hello endpoint
+get say_hello[](person: Person){
+    respond Status.OK format("Hello, {}", person.name)
+}
 ```
