@@ -78,8 +78,9 @@ func say_hello(name: str){ // return nothing
 ### Methods
 ```
 // * we might expect a repeating pattern
+// ? we might expect that to exists
 
-<method type> <method name>[(/identifier | identifier)*]((key: type)*)
+<method type> <method name>[((/ | ?)? identifier)*]((key: type)*)
 {
     respond <status code> <response>
 }
