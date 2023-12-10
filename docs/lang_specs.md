@@ -1,5 +1,5 @@
 # BackPack
-When you need a specialized language to make your API Backend
+When you need a specialized language to make your REST API Backend
 
 ## Example
 handler for a get request on the /hello endpoint
@@ -53,6 +53,7 @@ get hello[](
 - `int`: an integer data type, It's size is determined on runtime
 - `float`: a floating point data type, It's size is determined on runtime
 - `str`: a string data type for sequences of characters.
+- `bool`: a boolean data type for true or false values.
 
 ### Variables
 ```
@@ -86,9 +87,9 @@ func say_hello(name: str){ // return nothing
 }
 
 
-// identifiers in [] are automatically considered as url parameters
+// identifiers in [] are automatically considered as query parameters
 // unless if its prefixed with / then it's a path parameter
-// url parameters that have been prefixed with ? means it's optional
+// query parameters that have been prefixed with ? means it's optional
 
 // same function but different ways to get input
 
