@@ -1,0 +1,112 @@
+natural_newline = _{"␍␊" | "\r\n" | "\n"}
+explicit_newline = _{";"}
+new_line = _{natural_newline | explicit_newline}
+line_terminator = _{new_line | EOI}
+
+WHITESPACE = _{ " " | "\t" }
+float = @{ ("-")? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+integer = @{ ASCII_DIGIT+ }
+bool = @{ "true" | "false" }
+string = @{ "\"" ~ (("\\\"" | !"\"") ~ ANY)* ~ "\"" }
+
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT)* }
+
+number = @{ float | integer }
+
+
+function_call = {
+    identifier ~ "(" ~ natural_newline* ~ (expr ~ "," ~ natural_newline*)* ~ (expr ~ natural_newline*)? ~ ")" ~ natural_newline*
+}
+eq_ops = { "==" | "!="  | ">=" | "<=" | ">" | "<"}
+sum_ops = { "+" | "-" }
+prod_ops = { "*" | "/" }
+
+expr = { sum ~ ((eq_ops) ~ sum)* }
+sum = { product ~ ((sum_ops) ~ product)* }
+product = { term ~ ((prod_ops) ~ term)* }
+term = {
+    (
+    string
+    | float
+    | integer
+    | bool
+    | function_call
+    | identifier
+    | "(" ~ expr ~ ")"
+    )
+}
+
+typed_arg = {
+    identifier ~ ":" ~ identifier
+}
+
+variable_assignment = {
+    "let" ~ identifier ~ (":" ~ identifier)? ~ "=" ~ expr
+}
+
+response = {
+    "respond" ~ expr ~ "," ~ expr
+}
+
+return_statement = {
+    "return" ~ expr
+}
+
+statement = _{
+    (
+    variable_assignment
+    | function_call
+    | response
+    | return_statement
+    ) ~ explicit_newline
+}
+
+function = {
+    "func" ~ identifier ~
+    "("
+    ~ (typed_arg ~ ",")*
+    ~ (typed_arg)? ~
+    ")"
+    ~ ("->" ~ identifier)? ~ block
+}
+
+
+method_type = {
+    "get" | "post" | "put" | "delete"
+}
+
+path_type = @{
+    "/" ~ identifier
+}
+
+optional_query = {
+    typed_arg ~ "?"
+}
+
+method = {
+    method_type ~ identifier ~
+    "[" ~
+    ( (path_type | optional_query | typed_arg) ~ ",")* ~
+    ( path_type | optional_query | typed_arg )? ~
+    "]" ~
+    "("
+    ~ (typed_arg ~ ",")*
+    ~ (typed_arg)? ~
+    ")"
+    ~ block
+}
+
+block = {
+    "{" ~ new_line* ~ (new_line* ~ statement ~ new_line*)* ~ new_line* ~ "}"
+}
+
+construct = _{
+    function
+    | method
+}
+
+instructions = _{
+    (new_line* ~ construct ~ new_line?)*
+}
+
+program = _{ SOI ~ instructions ~ EOI}
