@@ -1,5 +1,4 @@
 
-
 #[derive(Debug)]
 pub enum Expression {
     Variable(String),
@@ -10,10 +9,6 @@ pub enum Expression {
     FunctionCall {
         name: String,
         args: Vec<Expression>,
-    },
-    Unary {
-        operator: char,
-        right: Box<Expression>,
     },
     Addition {
         left: Box<Expression>,
@@ -62,6 +57,10 @@ pub enum Statement {
     VariableAssignment {
         name: String,
         var_type: Option<VarType>,
+        value: Expression,
+    },
+    VariableReassignment {
+        name: String,
         value: Expression,
     },
     FunctionCall {

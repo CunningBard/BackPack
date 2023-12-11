@@ -17,6 +17,18 @@ macro_rules! binary {
     };
 }
 
+macro_rules! v_type {
+    ($rtype:ident, $current:expr, $var_type:ident, $pairs:ident) => {
+        if $current.as_rule() == Rule::$rtype {
+            let $var_type = Self::var_type($current);
+            $current = $pairs.next().unwrap();
+            Some($var_type)
+        } else {
+            None
+        }
+    };
+}
+
 
 impl BpParse {
     pub fn typed_arg(pair: Pair<Rule>) -> KeyType {
@@ -54,9 +66,9 @@ impl BpParse {
     }
     pub fn term(pair: Pair<Rule>) -> Expression {
         let mut pairs = pair.into_inner();
-        let mut current = pairs.next().unwrap();
+        let current = pairs.next().unwrap();
 
-        let mut left = match current.as_rule() {
+        let left = match current.as_rule() {
             Rule::string => Expression::String(current.as_str().to_string()),
             Rule::float => Expression::Float(current.as_str().parse().unwrap()),
             Rule::integer => Expression::Int(current.as_str().parse().unwrap()),
@@ -151,19 +163,66 @@ impl BpParse {
 
         let mut current = pairs.next().unwrap();
 
-        let var_type = if current.as_rule() == Rule::identifier {
-            let var_type = Self::var_type(current);
-            current = pairs.next().unwrap();
-            Some(var_type)
-        } else {
-            None
-        };
+        let var_type = v_type!(identifier, current, var_type, pairs);
 
         let value = Self::expr(current);
 
         Statement::VariableAssignment {
             name: variable_name.as_str().to_string(),
             var_type,
+            value,
+        }
+    }
+
+    pub fn conditional(pair: Pair<Rule>) -> Statement {
+        let mut pairs = pair.into_inner();
+        let mut current = pairs.next().unwrap();
+
+        let mut conditions = vec![];
+
+        while current.as_rule() == Rule::expr {
+            let condition = Self::expr(current);
+            let body = Self::block(pairs.next().unwrap());
+            conditions.push((condition, body));
+            match pairs.next() {
+                Some(pair) => {
+                    current = pair;
+                }
+                None => {
+                    return Statement::Conditional {
+                        conditions,
+                        else_body: None,
+                    }
+                }
+            }
+        }
+
+        let else_body = if current.as_rule() == Rule::else_statement {
+            Some(Self::block(pairs.next().unwrap()))
+        } else {
+            None
+        };
+
+        Statement::Conditional {
+            conditions,
+            else_body,
+        }
+    }
+    pub fn while_loop(pair: Pair<Rule>) -> Statement {
+        let mut pairs = pair.into_inner();
+        let condition = Self::expr(pairs.next().unwrap());
+        let body = Self::block(pairs.next().unwrap());
+        Statement::WhileLoop {
+            condition,
+            body,
+        }
+    }
+    pub fn variable_reassignment(pair: Pair<Rule>) -> Statement {
+        let mut pairs = pair.into_inner();
+        let variable_name = pairs.next().unwrap();
+        let value = Self::expr(pairs.next().unwrap());
+        Statement::VariableReassignment {
+            name: variable_name.as_str().to_string(),
             value,
         }
     }
@@ -178,11 +237,32 @@ impl BpParse {
             Rule::return_statement => {
                 Self::return_statement(pair)
             }
+            Rule::function_call => {
+                let fn_call = Self::function_call(pair);
+
+                if let Expression::FunctionCall { name, args } = fn_call {
+                    Statement::FunctionCall {
+                        name,
+                        args,
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
+            Rule::conditional => {
+                Self::conditional(pair)
+            }
+            Rule::while_loop => {
+                Self::while_loop(pair)
+            }
+            Rule::variable_reassignment => {
+                Self::variable_reassignment(pair)
+            }
             thing => unimplemented!("Unknown statement: {:?}", thing)
         }
     }
 
-    pub fn block(mut pair: Pair<Rule>) -> Block {
+    pub fn block(pair: Pair<Rule>) -> Block {
         let pairs = pair.into_inner();
 
         let mut statements = vec![];
@@ -217,13 +297,7 @@ impl BpParse {
             node = pairs.next().unwrap();
         }
 
-        let return_type = if node.as_rule() == Rule::identifier {
-            let var_type = Self::var_type(node);
-            node = pairs.next().unwrap();
-            Some(var_type)
-        } else {
-            None
-        };
+        let return_type = v_type!(identifier, node, return_type, pairs);
 
         let block = Self::block(node);
 
@@ -245,28 +319,11 @@ impl BpParse {
         }
     }
     pub fn method(pair: Pair<Rule>) -> Method {
-        // method = {
-        //     method_type ~ identifier ~
-        //     "[" ~
-        //     ( path_type | optional_query | typed_arg ~ ",")* ~
-        //     ( path_type | optional_query | typed_arg )? ~
-        //     "]" ~
-        //     "("
-        //     ~ (typed_arg ~ ",")*
-        //     ~ (typed_arg)? ~
-        //     ")"
-        //     ~ block
-        // }
-
         let mut pairs = pair.into_inner();
 
         let method_type = Self::method_type(pairs.next().unwrap());
         let endpoint = pairs.next().unwrap().as_str();
 
-        //     "[" ~
-        //     ( path_type | optional_query | typed_arg ~ ",")* ~
-        //     ( path_type | optional_query | typed_arg )? ~
-        //     "]" ~
 
         let mut optionals = vec![];
         let mut required = vec![];
@@ -291,11 +348,6 @@ impl BpParse {
             }
             node = pairs.next().unwrap();
         }
-
-        //     "("
-        //     ~ (typed_arg ~ ",")*
-        //     ~ (typed_arg)? ~
-        //     ")"
 
         let mut args = vec![];
         while node.as_rule() == Rule::typed_arg {

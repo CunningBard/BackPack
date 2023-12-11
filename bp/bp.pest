@@ -44,6 +44,10 @@ variable_assignment = {
     "let" ~ identifier ~ (":" ~ identifier)? ~ "=" ~ expr
 }
 
+variable_reassignment = {
+    identifier ~ "=" ~ expr
+}
+
 response = {
     "respond" ~ expr ~ "," ~ expr
 }
@@ -52,13 +56,36 @@ return_statement = {
     "return" ~ expr
 }
 
+if_statement = _{
+    "if" ~ expr ~ block
+}
+
+else_if_statement = _{
+    "else" ~ "if" ~ expr ~ block
+}
+
+else_statement = _{
+    "else" ~ block
+}
+
+while_loop = {
+    "while" ~ expr ~ block
+}
+
+conditional = {
+    if_statement ~  natural_newline* ~
+    (else_if_statement ~ natural_newline*)*
+    ~ natural_newline* ~ (else_statement)?
+}
+
 statement = _{
-    (
-    variable_assignment
-    | function_call
-    | response
-    | return_statement
-    ) ~ explicit_newline
+    variable_assignment ~ explicit_newline
+    | variable_reassignment ~ explicit_newline
+    | function_call ~ explicit_newline
+    | response ~ explicit_newline
+    | return_statement ~ explicit_newline
+    | conditional
+    | while_loop
 }
 
 function = {

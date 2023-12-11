@@ -7,16 +7,7 @@ use crate::parser::BpParse;
 mod parser;
 
 fn main() {
-
-    let data = r#"
-    get hello[/name, age: int](){
-        respond 200, format(
-            "Hello, {}! You are {} years old.",
-            name,
-            age
-        );
-    }
-    "#;
-    BpParse::data(data);
+    let file = std::fs::read_to_string("./bp/test.bp").unwrap();
+    BpParse::data(&file);
 
 }
