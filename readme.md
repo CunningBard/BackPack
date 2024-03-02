@@ -4,25 +4,27 @@ When you need a specialized language to make your REST API Backend
 ## Example
 handler for a get request on the /hello endpoint
 ```
-get hello[](
-    name: str
-){
-    
-    respond Status.OK { 
-        message: format("Hello, {}!", name) 
-    };
+GET hello {
+    respond Status.OK "Hello! from BackPack";
 }
 
-// json payload
-
-// {
-//     "name": "Jack"
-// }
-
-// response:
-
-// Status Code: 200
-// {
-//     "message": "Hello, Jack!"
-// }
+#PATH /auth/login
+#HEADER Content-Type: application/json
+POST Login(
+    username: str,
+    password: str
+) {
+    let user = authenticate(username, password);
+    
+    if user.is_none() {
+        respond Status.UNAUTHORIZED "Invalid username or password";
+    }
+    
+    let token = generate_token(user);
+    
+    respond Status.OK {
+        "msg": "Login successful",
+        "token": token
+    };
+}
 ```
