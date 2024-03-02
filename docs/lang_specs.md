@@ -5,7 +5,7 @@ When you need a specialized language to make your REST API Backend
 handler for a get request on the /hello endpoint
 ```
 /*
-this only expects a json paylod with only name as a key and a string as the value
+this only expects a json paylod with only `name` as a key and a `string` as the value
    
    
 ---------------------------------------
@@ -34,11 +34,8 @@ this only expects a json paylod with only name as a key and a string as the valu
     }
 ---------------------------------------
 */
-get hello[](
-    name: str
-){
-    
-    respond Status.OK { 
+get hello(name: str){
+    respond Status.OK, { 
         message: format("Hello, {}!", name) 
     };
 } 
@@ -57,17 +54,17 @@ get hello[](
 
 ### Variables
 ```
-var <identifier>(: <type>)? = <value>;
+let <identifier>(: <type>)? = <value>;
 
-var name: str = "jack";
-var name = "jack" // with type inference
+let name: str = "jack";
+let name = "jack" // with type inference
 ```
 
 ### Functions
 ```
 // * we might expect a repeating pattern
 // ? we might expect that to exists
-func <name>(<arg: type>*) < -> return type ?> {
+func <name>(<arg: type>*) < -> return_type?> {
     ...
 }
 
@@ -81,37 +78,42 @@ func say_hello(name: str){ // return nothing
 // * we might expect a repeating pattern
 // ? we might expect that to exists
 
-<method type> <method name>[((/ | ?)? identifier)*]((key: type)*)
-{
-    respond <status code> <response>
+#PATH   /<params>/*
+#QUERY  <arg: type>*
+#HEADER <arg: type>*
+#HEADER EXPECT <arg: value>
+<method> <name>(<arg: type>*) < -> return_type?> {
+    ...
 }
 
+// methods use respond instead of return
+// respond takes a status code and a payload
+// example:
 
-// identifiers in [] are automatically considered as query parameters
-// unless if its prefixed with / then it's a path parameter
-// query parameters that have been prefixed with ? means it's optional
-
-// same function but different ways to get input
-
-
-// url: /hello_path/jack
-// payload: {}
-// response: "Hello, Jack"
-get hello_path[/name](){
-    respond Status.OK format("Hello, {}", name)
+GET ping{
+    respond Status.OK "pong";
 }
+
+// when return is used in a method, it will raise an error
+// the following will error out
+
+GET ping {
+    return "pong";  // errors out
+}
+
 
 // url: /hello_url?name=Jack
 // payload: {}
 // response: "Hello, Jack"
-get hello_url[name](){
+#PATH /hello_url/{name}
+GET hello_url {
     respond Status.OK format("Hello, {}", name)
 }
 
 // input: /hello_json
 // payload: {"name": str}
 // response: "Hello, Jack"
-get hello_json[](
+GET hello_json(
     name: str
 ){
     respond Status.OK format("Hello, {}", name)
@@ -159,26 +161,42 @@ from <path> import <identifier>
 
 ### Structs
 ```
+// Comma separated list of key-value pairs
 struct <name> {
-    <identifier>: <type>
+    <identifier>: <type>, 
 }
 
 // example
 struct Person {
-    name: str
-    age: int
+    name: str,
+    age: int,
 }
 
 
 // structs can also be used as an argument type for methods
-// example
-struct Person {
-    name: str
-    age: int
-}
 
 // created a handler for a get request on the /say_hello endpoint
-get say_hello[](person: Person){
-    respond Status.OK format("Hello, {}", person.name)
+GET say_hello(person: Person){
+    respond Status.OK, format("Hello, {}", person.name)
 }
 ```
+
+### Examples
+```
+#PATH /user/{name}/     // path parameters
+#QUERY gender: str      // query parameters
+#HEADER token           // header parameters
+GET user(
+    log_text: str       // payload parameters
+){
+    if !auth(token) {
+        respond Status.UNAUTHORIZED, "Unauthorized"
+    }
+    
+    Log.Info(log_text);
+    
+    let users = get_users(filter: {name: name, gender: gender});
+    
+    respond Status.OK, users;
+}
+``` 
