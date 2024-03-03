@@ -1,6 +1,8 @@
 # BackPack
 When you need a specialized language to make your REST API Backend
 
+# CHECK OUT THE LANG SPEC AT /docs/lang_spec.md
+
 ## Example
 handler for a get request on the /hello endpoint
 ```
