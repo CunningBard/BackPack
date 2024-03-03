@@ -10,7 +10,7 @@ mod parser;
 mod translation;
 
 fn main() {
-    let file = std::fs::read_to_string("../../temp/test.bp").unwrap();
+    let file = std::fs::read_to_string("temp/test.bp").unwrap();
     let program = BpParse::data(&file);
     
     for construct in program.iter() {
@@ -18,7 +18,7 @@ fn main() {
     }
 
     // save to file, ./bp/test.go
-    let mut file = std::fs::File::create("../../temp/test.go").unwrap();
+    let mut file = std::fs::File::create("temp/test.go").unwrap();
 
     let code = program.to_go_code();
 

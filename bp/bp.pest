@@ -111,19 +111,28 @@ enclosed_path = {
 
 // #PATH /user/{id}
 path_specifier = {
-    "PATH" ~ identifier ~ (("/" ~ identifier | enclosed_path))* ~ "/"*
+    "PATH" ~ ("/" ~ (identifier | enclosed_path))* ~ "/"?
 }
 
-// #QUERY key: type ?
+
+query = {
+    identifier ~ ":" ~ identifier
+}
+
+optional_query = {
+    query ~ "?"
+}
+
 query_specifier = {
-    "QUERY"
+    "QUERY" ~ (optional_query | query)
 }
 
-specifiers = {
+specifiers = _{
     "#" ~
     (
     path_specifier
-    )
+    | query_specifier
+    ) ~ natural_newline*
 }
 
 method_type = {
@@ -131,7 +140,7 @@ method_type = {
 }
 
 method = {
-    method_type ~ identifier ~
+    specifiers* ~ method_type ~ identifier ~
     ("(" ~ (typed_arg ~ ",")* ~ (typed_arg)? ~")")?
     ~ block
 }

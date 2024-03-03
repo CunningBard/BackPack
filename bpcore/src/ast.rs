@@ -1,13 +1,33 @@
+use std::fmt::Display;
 
-#[derive(Debug)]
+pub type Block = Vec<Statement>;
+pub type Program = Vec<Construct>;
+
+#[derive(Debug, Clone)]
+pub enum Identifier {
+    Single(String),
+    DotIdentifier(Vec<String>), // variables with dots in them
+}
+
+impl Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            Identifier::Single(s) => s.clone(),
+            Identifier::DotIdentifier(v) => v.join("."),
+        };
+        write!(f, "{}", str)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Expression {
-    Variable(String),
+    Variable(Identifier),
     String(String),
     Int(i32),
     Float(f32),
     Bool(bool),
     FunctionCall {
-        name: String,
+        func_name: Identifier,
         args: Vec<Expression>,
     },
     Addition {
@@ -52,7 +72,7 @@ pub enum Expression {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     VariableAssignment {
         name: String,
@@ -60,11 +80,11 @@ pub enum Statement {
         value: Expression,
     },
     VariableReassignment {
-        name: String,
+        variable_name: Identifier,
         value: Expression,
     },
     FunctionCall {
-        name: String,
+        name: Identifier,
         args: Vec<Expression>,
     },
     Return {
@@ -84,14 +104,8 @@ pub enum Statement {
     },
 }
 
-
-#[derive(Debug)]
-pub struct Block {
-    pub statements: Vec<Statement>,
-}
-
-#[derive(Debug)]
-pub enum VarType {
+#[derive(Debug, Clone)]
+pub enum Type {
     Int,
     String,
     Float,
@@ -99,40 +113,70 @@ pub enum VarType {
     // Struct(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct VarType {
+    pub pointer_count: usize,
+    pub var_type: Type,
+}
+
+#[derive(Debug, Clone)]
 pub struct KeyType {
     pub name: String,
     pub var_type: VarType,
 }
 
-#[derive(Debug)]
+
+#[derive(Debug, Clone)]
+pub enum PathType {
+    Variable(String),
+    Path(String),
+}
+
+
+#[derive(Debug, Clone)]
+pub struct UrlPath {
+    pub path: Vec<PathType>
+}
+
+#[derive(Debug, Clone)]
 pub struct Handler {
-    pub url_params: Vec<String>,
+    pub path: UrlPath,
     pub required_query_params: Vec<KeyType>,
     pub optional_query_params: Vec<KeyType>,
     pub body: Block
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Method {
     pub method: MethodType,
     pub path: String,
     pub handler: Handler,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MethodType {
     Get,
     Post,
     Put,
-    Delete,
-    Patch,
+    // Delete,
+    // Patch,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     pub args: Vec<KeyType>,
     pub return_type: Option<VarType>,
     pub body: Block,
+}
+
+#[derive(Debug, Clone)]
+pub enum Construct {
+    Function(Function),
+    Method(Method),
+    // GlobalVariable {
+    //     name: String,
+    //     var_type: Option<VarType>,
+    //     value: Expression,
+    // },
 }
