@@ -9,8 +9,8 @@ GET hello {
 }
 
 #PATH /auth/login
-#HEADER Content-Type: application/json
-POST Login(
+#HEADER EXPECT Content-Type: application/json
+POST (
     username: str,
     password: str
 ) {
