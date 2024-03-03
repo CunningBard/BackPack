@@ -13,9 +13,14 @@ identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT)* }
 
 number = @{ float | integer }
 
+var_type = { identifier ~ "*"* }
+
+identifier_with_dots = { identifier ~ ("." ~ identifier)+ }
+usable_identifier = { identifier_with_dots | identifier }
+
 
 function_call = {
-    identifier ~ "(" ~ natural_newline* ~ (expr ~ "," ~ natural_newline*)* ~ (expr ~ natural_newline*)? ~ ")" ~ natural_newline*
+    usable_identifier ~ "(" ~ natural_newline* ~ (expr ~ "," ~ natural_newline*)* ~ (expr ~ natural_newline*)? ~ ")" ~ natural_newline*
 }
 eq_ops = { "==" | "!="  | ">=" | "<=" | ">" | "<"}
 sum_ops = { "+" | "-" }
@@ -31,7 +36,10 @@ term = {
     | integer
     | bool
     | function_call
-    | identifier
+    | identifier_with_dots
+//     | ("&" ~ identifier)
+//     | ("*" ~ identifier)
+    | usable_identifier
     | "(" ~ expr ~ ")"
     )
 }
@@ -45,11 +53,11 @@ variable_assignment = {
 }
 
 variable_reassignment = {
-    identifier ~ "=" ~ expr
+    usable_identifier ~ "=" ~ expr
 }
 
 response = {
-    "respond" ~ expr ~ "," ~ expr
+    "respond" ~ expr ~ expr
 }
 
 return_statement = {
@@ -97,29 +105,34 @@ function = {
     ~ ("->" ~ identifier)? ~ block
 }
 
+enclosed_path = {
+    "{" ~ identifier ~ "}"
+}
+
+// #PATH /user/{id}
+path_specifier = {
+    "PATH" ~ identifier ~ (("/" ~ identifier | enclosed_path))* ~ "/"*
+}
+
+// #QUERY key: type ?
+query_specifier = {
+    "QUERY"
+}
+
+specifiers = {
+    "#" ~
+    (
+    path_specifier
+    )
+}
 
 method_type = {
-    "get" | "post" | "put" | "delete"
-}
-
-path_type = @{
-    "/" ~ identifier
-}
-
-optional_query = {
-    typed_arg ~ "?"
+    "GET" | "POST" | "PUT" | "DELETE"
 }
 
 method = {
     method_type ~ identifier ~
-    "[" ~
-    ( (path_type | optional_query | typed_arg) ~ ",")* ~
-    ( path_type | optional_query | typed_arg )? ~
-    "]" ~
-    "("
-    ~ (typed_arg ~ ",")*
-    ~ (typed_arg)? ~
-    ")"
+    ("(" ~ (typed_arg ~ ",")* ~ (typed_arg)? ~")")?
     ~ block
 }
 
@@ -130,6 +143,7 @@ block = {
 construct = _{
     function
     | method
+//     | variable_assignment
 }
 
 instructions = _{
