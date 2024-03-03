@@ -156,8 +156,6 @@ GET image {
 
 When the supplied Query Parameters is missing, the compiler will automatically respond with a **BadRequest**.
 
-```
-
 When the supplied Query Parameters is the wrong type, the compiler will automatically respond with a **BadRequest**.
 
 ---
