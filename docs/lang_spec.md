@@ -60,7 +60,7 @@ The syntax for defining a method is as follows:
 #QUERY  <arg: type>*
 #HEADER <arg: type>*
 #HEADER EXPECT <arg: value>
-<method> <name>(<arg: type>*) < -> return_type?> {
+<method> <name>(<arg: type>*) {
     ...
 }
 ```
