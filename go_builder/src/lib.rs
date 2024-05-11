@@ -1,14 +1,15 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+pub mod function;
+pub mod variable;
+pub mod data_type;
+pub mod structs;
+pub mod expr;
+
+pub enum Construct {
+    Function(function::Function),
+    Variable(variable::Variable),
+    // Struct(structs::Struct),
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub enum Statement {
+    
 }
