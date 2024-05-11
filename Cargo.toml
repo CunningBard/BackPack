@@ -2,4 +2,4 @@
 members = [
     "bpcore",
     "bp"
-]
+, "go_builder"]
