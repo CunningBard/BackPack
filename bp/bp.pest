@@ -9,7 +9,7 @@ integer = @{ ASCII_DIGIT+ }
 bool = @{ "true" | "false" }
 string = @{ "\"" ~ (("\\\"" | !"\"") ~ ANY)* ~ "\"" }
 
-identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT)* }
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHA | "_" | ASCII_DIGIT)* }
 
 number = @{ float | integer }
 
@@ -39,7 +39,6 @@ term = {
     | identifier_with_dots
 //     | ("&" ~ identifier)
 //     | ("*" ~ identifier)
-    | usable_identifier
     | "(" ~ expr ~ ")"
     )
 }
@@ -87,11 +86,11 @@ conditional = {
 }
 
 statement = _{
-    variable_assignment ~ explicit_newline
-    | variable_reassignment ~ explicit_newline
-    | function_call ~ explicit_newline
-    | response ~ explicit_newline
-    | return_statement ~ explicit_newline
+    (function_call ~ explicit_newline)
+    | (variable_assignment ~ explicit_newline)
+    | (variable_reassignment ~ explicit_newline)
+    | (response ~ explicit_newline)
+    | (return_statement ~ explicit_newline)
     | conditional
     | while_loop
 }
