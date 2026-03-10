@@ -30,6 +30,13 @@ pub enum Expression {
         func_name: Identifier,
         args: Vec<Expression>,
     },
+    Not {
+        expr: Box<Expression>,
+    },
+    Negate {
+        expr: Box<Expression>,
+    },
+    List(Vec<Expression>),
     Addition {
         left: Box<Expression>,
         right: Box<Expression>,
@@ -70,6 +77,14 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    And {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    Or {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +117,11 @@ pub enum Statement {
         condition: Expression,
         body: Block,
     },
+    ForLoop {
+        var: String,
+        iter: Expression,
+        body: Block,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +130,7 @@ pub enum Type {
     String,
     Float,
     Bool,
+    List(Box<Type>),
     // Struct(String),
 }
 
@@ -143,6 +164,8 @@ pub struct Handler {
     pub path: UrlPath,
     pub required_query_params: Vec<KeyType>,
     pub optional_query_params: Vec<KeyType>,
+    pub required_headers: Vec<String>,
+    pub expected_headers: Vec<(String, String)>,
     pub body: Block
 }
 
@@ -158,8 +181,8 @@ pub enum MethodType {
     Get,
     Post,
     Put,
-    // Delete,
-    // Patch,
+    Delete,
+    Patch,
 }
 
 #[derive(Debug, Clone)]

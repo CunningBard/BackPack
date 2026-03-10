@@ -4,8 +4,9 @@ new_line = _{natural_newline | explicit_newline}
 line_terminator = _{new_line | EOI}
 
 WHITESPACE = _{ " " | "\t" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 float = @{ ("-")? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
-integer = @{ ASCII_DIGIT+ }
+integer = @{ "-"? ~ ASCII_DIGIT+ }
 bool = @{ "true" | "false" }
 string = @{ "\"" ~ (("\\\"" | !"\"") ~ ANY)* ~ "\"" }
 
@@ -13,7 +14,9 @@ identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHA | "_" | ASCII_DIGIT)* }
 
 number = @{ float | integer }
 
-var_type = { identifier ~ "*"* }
+var_type = { list_type | identifier ~ "*"* }
+
+list_type = { "[" ~ var_type ~ "]" }
 
 identifier_with_dots = { identifier ~ ("." ~ identifier)+ }
 usable_identifier = { identifier_with_dots | identifier }
@@ -23,20 +26,32 @@ function_call = {
     usable_identifier ~ "(" ~ natural_newline* ~ (expr ~ "," ~ natural_newline*)* ~ (expr ~ natural_newline*)? ~ ")" ~ natural_newline*
 }
 eq_ops = { "==" | "!="  | ">=" | "<=" | ">" | "<"}
+and_ops = { "&&" }
+or_ops = { "||" }
 sum_ops = { "+" | "-" }
 prod_ops = { "*" | "/" }
 
-expr = { sum ~ ((eq_ops) ~ sum)* }
+expr = { logical_or }
+logical_or = { logical_and ~ (or_ops ~ logical_and)* }
+logical_and = { comparison ~ (and_ops ~ comparison)* }
+comparison = { sum ~ (eq_ops ~ sum)* }
 sum = { product ~ ((sum_ops) ~ product)* }
 product = { term ~ ((prod_ops) ~ term)* }
+unary_op = { "!" | "-" }
+unary = { unary_op ~ term }
+
+list_literal = { "[" ~ natural_newline* ~ (expr ~ "," ~ natural_newline*)* ~ expr? ~ natural_newline* ~ "]" }
+
 term = {
     (
-    string
+    unary
+    | string
     | float
     | integer
     | bool
     | function_call
-    | identifier_with_dots
+    | list_literal
+    | usable_identifier
 //     | ("&" ~ identifier)
 //     | ("*" ~ identifier)
     | "(" ~ expr ~ ")"
@@ -44,15 +59,19 @@ term = {
 }
 
 typed_arg = {
-    identifier ~ ":" ~ identifier
+    identifier ~ ":" ~ var_type
 }
 
 variable_assignment = {
-    "let" ~ identifier ~ (":" ~ identifier)? ~ "=" ~ expr
+    "let" ~ identifier ~ (":" ~ var_type)? ~ "=" ~ expr
+}
+
+assign_op = {
+    "=" | "+="
 }
 
 variable_reassignment = {
-    usable_identifier ~ "=" ~ expr
+    usable_identifier ~ assign_op ~ expr
 }
 
 response = {
@@ -79,6 +98,10 @@ while_loop = {
     "while" ~ expr ~ block
 }
 
+for_loop = {
+    "for" ~ identifier ~ "in" ~ expr ~ block
+}
+
 conditional = {
     if_statement ~  natural_newline* ~
     (else_if_statement ~ natural_newline*)*
@@ -92,8 +115,7 @@ statement = _{
     | (response ~ explicit_newline)
     | (return_statement ~ explicit_newline)
     | conditional
-    | while_loop
-}
+    | while_loop    | for_loop}
 
 function = {
     "func" ~ identifier ~
@@ -126,16 +148,30 @@ query_specifier = {
     "QUERY" ~ (optional_query | query)
 }
 
+header_expect = {
+    identifier ~ ":" ~ (string | identifier)
+}
+
+header_expect_specifier = {
+    "HEADER" ~ "EXPECT" ~ header_expect
+}
+
+header_specifier = {
+    "HEADER" ~ identifier
+}
+
 specifiers = _{
     "#" ~
     (
     path_specifier
     | query_specifier
+    | header_expect_specifier
+    | header_specifier
     ) ~ natural_newline*
 }
 
 method_type = {
-    "GET" | "POST" | "PUT" | "DELETE"
+    "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
 }
 
 method = {

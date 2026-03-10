@@ -1,4 +1,4 @@
-use pest::iterators::{Pair};
+use pest::iterators::Pair;
 use pest::Parser;
 use bpcore::ast::{Block, Construct, Expression, Function, Handler, Identifier, KeyType, Method, MethodType, PathType, Statement, Type, UrlPath, VarType};
 
@@ -32,34 +32,22 @@ macro_rules! v_type {
 
 impl BpParse {
     pub fn identifier_with_dots(pair: Pair<Rule>) -> Identifier {
-        let mut pairs = pair.into_inner();
-        let mut identifiers = vec![];
-        while let Some(pair) = pairs.next() {
-            identifiers.push(pair.as_str().to_string());
-        }
-
+        let identifiers = pair
+            .into_inner()
+            .map(|part| part.as_str().to_string())
+            .collect();
         Identifier::DotIdentifier(identifiers)
-
     }
+
     pub fn usable_identifier(pair: Pair<Rule>) -> Identifier {
-        let mut pairs = pair.into_inner();
-        match pairs.next() {
-            Some(pair) => {
-                match pair.as_rule() {
-                    Rule::identifier => {
-                        Identifier::Single(pair.as_str().to_string())
-                    }
-                    Rule::identifier_with_dots => {
-                        Self::identifier_with_dots(pair)
-                    }
-                    _ => unimplemented!()
-                }
-            }
-            None => {
-                unreachable!()
-            }
+        let inner = pair.into_inner().next().unwrap();
+        match inner.as_rule() {
+            Rule::identifier => Identifier::Single(inner.as_str().to_string()),
+            Rule::identifier_with_dots => Self::identifier_with_dots(inner),
+            _ => unimplemented!(),
         }
     }
+
     pub fn typed_arg(pair: Pair<Rule>) -> KeyType {
         let mut pairs = pair.into_inner();
         let arg_name = pairs.next().unwrap();
@@ -69,32 +57,39 @@ impl BpParse {
             var_type: arg_type,
         }
     }
+
     pub fn var_type(pair: Pair<Rule>) -> VarType {
-        let var_type = match pair.as_str() {
-            "string" => Type::String,
-            "int" => Type::Int,
-            "float" => Type::Float,
-            "bool" => Type::Bool,
-            identifier => unimplemented!("Unknown type: {}", identifier)
-        };
-
-        let pointer_count = 0;
-
-        VarType {
-            pointer_count,
-            var_type
+        // var_type = { list_type | identifier ~ "*"* }
+        let inner = pair.into_inner().next().unwrap();
+        match inner.as_rule() {
+            Rule::list_type => {
+                let inner_type = Self::var_type(inner.into_inner().next().unwrap());
+                VarType {
+                    pointer_count: 0,
+                    var_type: Type::List(Box::new(inner_type.var_type)),
+                }
+            }
+            Rule::identifier => {
+                let var_type = match inner.as_str() {
+                    "string" | "str" => Type::String,
+                    "int" => Type::Int,
+                    "float" => Type::Float,
+                    "bool" => Type::Bool,
+                    identifier => unimplemented!("Unknown type: {}", identifier),
+                };
+                VarType {
+                    pointer_count: 0,
+                    var_type,
+                }
+            }
+            r => unimplemented!("var_type: {:?}", r),
         }
-
     }
+
     pub fn function_call(pair: Pair<Rule>) -> Expression {
-        // println!("{:#?}", pair);
         let mut pairs = pair.into_inner();
         let func_name = Self::usable_identifier(pairs.next().unwrap());
-        let mut args = vec![];
-
-        while let Some(pair) = pairs.next() {
-            args.push(Self::expr(pair));
-        }
+        let args = pairs.map(Self::expr).collect();
 
         Expression::FunctionCall {
             func_name,
@@ -106,16 +101,34 @@ impl BpParse {
         let current = pairs.next().unwrap();
 
         let left = match current.as_rule() {
+            Rule::unary => {
+                let mut unary_parts = current.into_inner();
+                let op = unary_parts.next().unwrap().as_str();
+                let inner = unary_parts.next().unwrap();
+                let expression = Self::term(inner);
+
+                match op {
+                    "!" => Expression::Not {
+                        expr: Box::new(expression),
+                    },
+                    "-" => Expression::Negate {
+                        expr: Box::new(expression),
+                    },
+                    _ => unreachable!("unsupported unary operator: {}", op),
+                }
+            }
             Rule::string => Expression::String(current.as_str().to_string()),
             Rule::float => Expression::Float(current.as_str().parse().unwrap()),
             Rule::integer => Expression::Int(current.as_str().parse().unwrap()),
             Rule::bool => Expression::Bool(current.as_str().parse().unwrap()),
             Rule::usable_identifier => Expression::Variable(Self::usable_identifier(current)),
-            Rule::function_call => {
-                Self::function_call(current)
-            },
+            Rule::function_call => Self::function_call(current),
+            Rule::list_literal => {
+                let items = current.into_inner().map(Self::expr).collect();
+                Expression::List(items)
+            }
             Rule::expr => Self::expr(current),
-            expr_rule => unimplemented!("{:?}", expr_rule)
+            expr_rule => unimplemented!("{:?}", expr_rule),
         };
 
         left
@@ -134,7 +147,7 @@ impl BpParse {
                 "/" => {
                     left = binary!(left, Self::term(pairs.next().unwrap()), Division);
                 }
-                _ => unimplemented!()
+                _ => unimplemented!(),
             }
         }
 
@@ -155,13 +168,13 @@ impl BpParse {
                 "-" => {
                     left = binary!(left, Self::product(pairs.next().unwrap()), Subtraction);
                 }
-                _ => unimplemented!()
+                _ => unimplemented!(),
             }
         }
 
         left
     }
-    pub fn expr(pair: Pair<Rule>) -> Expression {
+    pub fn comparison(pair: Pair<Rule>) -> Expression {
         let mut pairs = pair.into_inner();
         let current = pairs.next().unwrap();
 
@@ -188,11 +201,58 @@ impl BpParse {
                 ">=" => {
                     left = binary!(left, Self::sum(pairs.next().unwrap()), GreaterThanOrEqual);
                 }
-                _ => unimplemented!()
+                _ => unimplemented!(),
             }
         }
 
         left
+    }
+
+    pub fn logical_and(pair: Pair<Rule>) -> Expression {
+        let mut pairs = pair.into_inner();
+        let current = pairs.next().unwrap();
+
+        let mut left = Self::comparison(current);
+
+        while let Some(pair) = pairs.next() {
+            match pair.as_str() {
+                "&&" => {
+                    left = binary!(left, Self::comparison(pairs.next().unwrap()), And);
+                }
+                _ => unimplemented!(),
+            }
+        }
+
+        left
+    }
+
+    pub fn logical_or(pair: Pair<Rule>) -> Expression {
+        let mut pairs = pair.into_inner();
+        let current = pairs.next().unwrap();
+
+        let mut left = Self::logical_and(current);
+
+        while let Some(pair) = pairs.next() {
+            match pair.as_str() {
+                "||" => {
+                    left = binary!(left, Self::logical_and(pairs.next().unwrap()), Or);
+                }
+                _ => unimplemented!(),
+            }
+        }
+
+        left
+    }
+
+    pub fn expr(pair: Pair<Rule>) -> Expression {
+        let inner = pair.into_inner().next().unwrap();
+        match inner.as_rule() {
+            Rule::logical_or => Self::logical_or(inner),
+            Rule::logical_and => Self::logical_and(inner),
+            Rule::comparison => Self::comparison(inner),
+            Rule::sum => Self::sum(inner),
+            _ => unimplemented!("Unknown expr inner rule: {:?}", inner.as_rule()),
+        }
     }
     pub fn variable_assignment(pair: Pair<Rule>) -> Statement {
         let mut pairs = pair.into_inner();
@@ -200,7 +260,7 @@ impl BpParse {
 
         let mut current = pairs.next().unwrap();
 
-        let var_type = v_type!(identifier, current, var_type, pairs);
+        let var_type = v_type!(var_type, current, var_type, pairs);
 
         let value = Self::expr(current);
 
@@ -229,7 +289,7 @@ impl BpParse {
                     return Statement::Conditional {
                         conditions,
                         else_body: None,
-                    }
+                    };
                 }
             }
         }
@@ -254,10 +314,29 @@ impl BpParse {
             body,
         }
     }
+
+    pub fn for_loop(pair: Pair<Rule>) -> Statement {
+        let mut pairs = pair.into_inner();
+        let var = pairs.next().unwrap().as_str().to_string();
+        let iter = Self::expr(pairs.next().unwrap());
+        let body = Self::block(pairs.next().unwrap());
+        Statement::ForLoop { var, iter, body }
+    }
     pub fn variable_reassignment(pair: Pair<Rule>) -> Statement {
         let mut pairs = pair.into_inner();
         let variable_name = Self::usable_identifier(pairs.next().unwrap());
-        let value = Self::expr(pairs.next().unwrap());
+        let op = pairs.next().unwrap().as_str();
+        let rhs = Self::expr(pairs.next().unwrap());
+
+        let value = match op {
+            "=" => rhs,
+            "+=" => Expression::Addition {
+                left: Box::new(Expression::Variable(variable_name.clone())),
+                right: Box::new(rhs),
+            },
+            _ => unreachable!("unsupported assignment operator: {}", op),
+        };
+
         Statement::VariableReassignment {
             variable_name,
             value,
@@ -265,15 +344,9 @@ impl BpParse {
     }
     pub fn statement(pair: Pair<Rule>) -> Statement {
         match pair.as_rule() {
-            Rule::variable_assignment => {
-                Self::variable_assignment(pair)
-            }
-            Rule::response => {
-                Self::respond(pair)
-            }
-            Rule::return_statement => {
-                Self::return_statement(pair)
-            }
+            Rule::variable_assignment => Self::variable_assignment(pair),
+            Rule::response => Self::respond(pair),
+            Rule::return_statement => Self::return_statement(pair),
             Rule::function_call => {
                 let fn_call = Self::function_call(pair);
 
@@ -286,42 +359,19 @@ impl BpParse {
                     unreachable!()
                 }
             }
-            Rule::conditional => {
-                Self::conditional(pair)
-            }
-            Rule::while_loop => {
-                Self::while_loop(pair)
-            }
-            Rule::variable_reassignment => {
-                Self::variable_reassignment(pair)
-            }
-            thing => unimplemented!("Unknown statement: {:?}", thing)
+            Rule::conditional => Self::conditional(pair),
+            Rule::while_loop => Self::while_loop(pair),
+            Rule::for_loop => Self::for_loop(pair),
+            Rule::variable_reassignment => Self::variable_reassignment(pair),
+            thing => unimplemented!("Unknown statement: {:?}", thing),
         }
     }
 
     pub fn block(pair: Pair<Rule>) -> Block {
-        let pairs = pair.into_inner();
-
-        let mut statements = vec![];
-
-        for pair in pairs {
-            statements.push(
-                Self::statement(pair)
-            )
-        }
-
-        statements
+        pair.into_inner().map(Self::statement).collect()
     }
-    pub fn function(pair: Pair<Rule>) -> Function {
-        // function = {
-        //     "func" ~ identifier ~
-        //     "("
-        //     ~ (typed_arg ~ ",")*
-        //     ~ (typed_arg)? ~
-        //     ")"
-        //     ~ ("->" ~ identifier)? ~ block
-        // }
 
+    pub fn function(pair: Pair<Rule>) -> Function {
         let mut pairs = pair.into_inner();
 
         let func_name = pairs.next().unwrap();
@@ -345,22 +395,22 @@ impl BpParse {
             body: block,
         }
     }
+
     pub fn method_type(pair: Pair<Rule>) -> MethodType {
         match pair.as_str() {
             "GET" => MethodType::Get,
             "POST" => MethodType::Post,
             "PUT" => MethodType::Put,
-            // "DELETE" => MethodType::Delete,
-            // "PATCH" => MethodType::Patch,
-            _ => unimplemented!()
+            "DELETE" => MethodType::Delete,
+            "PATCH" => MethodType::Patch,
+            _ => unimplemented!(),
         }
     }
 
     pub fn path_specifier(pair: Pair<Rule>) -> UrlPath {
-        let mut pairs = pair.into_inner();
         let mut path = vec![];
 
-        while let Some(pair) = pairs.next() {
+        for pair in pair.into_inner() {
             match pair.as_rule() {
                 Rule::identifier => {
                     path.push(PathType::Path(pair.as_str().to_string()));
@@ -368,16 +418,14 @@ impl BpParse {
                 Rule::enclosed_path => {
                     let mut inner_pairs = pair.into_inner();
                     let inner_path = inner_pairs.next().unwrap().as_str();
-                    
+
                     path.push(PathType::Variable(inner_path.to_string()));
                 }
-                _ => unimplemented!()
+                _ => unimplemented!(),
             }
         }
 
-        UrlPath {
-            path
-        }
+        UrlPath { path }
     }
     /// Pest Syntax
     /// ```pest
@@ -393,55 +441,73 @@ impl BpParse {
     ///     "QUERY" ~ (optional_query | query)
     /// }
     /// ```
-    pub fn query_specifier(pair: Pair<Rule>) -> (KeyType, bool) {
-        let mut pairs = pair.into_inner();
-        let query = pairs.next().unwrap();
-        
-        match query.as_rule() { 
-            Rule::optional_query => {
-                let mut pairs = query.into_inner().next().unwrap().into_inner();
-                let key = pairs.next().unwrap();
-                let value = pairs.next().unwrap();
-                let key_type = KeyType {
-                    name: key.as_str().to_string(),
-                    var_type: Self::var_type(value),
-                };
-                (key_type, true)
-            }
-            Rule::query => {
-                let mut pairs = query.into_inner();
-                let key = pairs.next().unwrap();
-                let value = pairs.next().unwrap();
-                let key_type = KeyType {
-                    name: key.as_str().to_string(),
-                    var_type: Self::var_type(value),
-                };
-                (key_type, false)
-            }
-            _ => unimplemented!()
+    fn key_type_from_query_pair(query_pair: Pair<Rule>) -> KeyType {
+        let mut pairs = query_pair.into_inner();
+        let key = pairs.next().unwrap();
+        let value = pairs.next().unwrap();
+        KeyType {
+            name: key.as_str().to_string(),
+            var_type: Self::var_type(value),
         }
     }
-    
+
+    pub fn query_specifier(pair: Pair<Rule>) -> (KeyType, bool) {
+        let query = pair.into_inner().next().unwrap();
+
+        match query.as_rule() {
+            Rule::optional_query => {
+                let nested_query = query.into_inner().next().unwrap();
+                (Self::key_type_from_query_pair(nested_query), true)
+            }
+            Rule::query => (Self::key_type_from_query_pair(query), false),
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn header_specifier(pair: Pair<Rule>) -> String {
+        pair.into_inner().next().unwrap().as_str().to_string()
+    }
+
+    pub fn header_expect_specifier(pair: Pair<Rule>) -> (String, String) {
+        let mut pairs = pair.into_inner();
+        let expect = pairs.next().unwrap();
+        let mut expect_pairs = expect.into_inner();
+
+        let key = expect_pairs.next().unwrap().as_str().to_string();
+        let value_pair = expect_pairs.next().unwrap();
+
+        let value = match value_pair.as_rule() {
+            Rule::string => value_pair.as_str().trim_matches('"').to_string(),
+            Rule::identifier => value_pair.as_str().to_string(),
+            _ => unimplemented!(),
+        };
+
+        (key, value)
+    }
+
     pub fn method(pair: Pair<Rule>) -> Method {
         let mut pairs = pair.into_inner();
-        
+
         let mut pair = pairs.next().unwrap();
-        
+
         let mut url_path = None;
         let mut optional = vec![];
         let mut required = vec![];
-        
+        let mut required_headers = vec![];
+        let mut expected_headers = vec![];
+
         while pair.as_rule() == Rule::path_specifier
             || pair.as_rule() == Rule::query_specifier
+            || pair.as_rule() == Rule::header_specifier
+            || pair.as_rule() == Rule::header_expect_specifier
         {
             match pair.as_rule() {
                 Rule::path_specifier => {
                     if url_path.is_some() {
                         panic!("Multiple path specifiers in method");
                     }
-                    
+
                     url_path = Some(Self::path_specifier(pair));
-                    
                 }
                 Rule::query_specifier => {
                     let (key, is_optional) = Self::query_specifier(pair);
@@ -451,25 +517,37 @@ impl BpParse {
                         required.push(key);
                     }
                 }
-                _ => unimplemented!()
+                Rule::header_specifier => {
+                    required_headers.push(Self::header_specifier(pair));
+                }
+                Rule::header_expect_specifier => {
+                    expected_headers.push(Self::header_expect_specifier(pair));
+                }
+                _ => unimplemented!(),
             }
-            
+
             pair = pairs.next().unwrap();
         }
-        
+
         let method_type = Self::method_type(pair);
         let name = pairs.next().unwrap().as_str().to_string();
-        
+
         let mut pair = pairs.next().unwrap();
-        
+
+        if url_path.is_none() {
+            url_path = Some(UrlPath {
+                path: vec![PathType::Path(name.clone())],
+            });
+        }
+
         // json payload
         while pair.as_rule() == Rule::typed_arg {
             required.push(Self::typed_arg(pair));
             pair = pairs.next().unwrap();
         }
-        
+
         let body = Self::block(pair);
-        
+
         Method {
             method: method_type,
             path: name,
@@ -477,31 +555,32 @@ impl BpParse {
                 path: url_path.unwrap(),
                 required_query_params: required,
                 optional_query_params: optional,
+                required_headers,
+                expected_headers,
                 body,
-            }
+            },
         }
     }
+
     pub fn respond(pair: Pair<Rule>) -> Statement {
         let mut pairs = pair.into_inner();
         let status_code = Self::expr(pairs.next().unwrap());
         let body = Self::expr(pairs.next().unwrap());
         Statement::Response {
             status_code,
-            body
+            body,
         }
     }
 
     pub fn return_statement(pair: Pair<Rule>) -> Statement {
         let mut pairs = pair.into_inner();
         let value = Self::expr(pairs.next().unwrap());
-        Statement::Return {
-            value
-        }
+        Statement::Return { value }
     }
+
     pub fn data(data: &str) -> Vec<Construct> {
         let pairs = BareParser::parse(Rule::program, data)
             .unwrap_or_else(|e| panic!("{}", e));
-
 
         let mut constructs = vec![];
 
