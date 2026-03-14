@@ -35,7 +35,7 @@ Functions in BackPack are declared using the `func` keyword.
 // * we might expect a repeating pattern
 // ? we might expect that to exists, basically optional
 
-func <name>(<arg: type>*) return_type? {
+func <name>(<arg: type>*) -> return_type? {
     ...
 }
 

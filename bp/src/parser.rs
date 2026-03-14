@@ -322,6 +322,15 @@ impl BpParse {
         let body = Self::block(pairs.next().unwrap());
         Statement::ForLoop { var, iter, body }
     }
+
+    pub fn if_some(pair: Pair<Rule>) -> Statement {
+        let mut pairs = pair.into_inner();
+        let binding = pairs.next().unwrap().as_str().to_string();
+        let source = Self::expr(pairs.next().unwrap());
+        let some_body = Self::block(pairs.next().unwrap());
+        let none_body = pairs.next().map(|p| Self::block(p));
+        Statement::IfSome { binding, source, some_body, none_body }
+    }
     pub fn variable_reassignment(pair: Pair<Rule>) -> Statement {
         let mut pairs = pair.into_inner();
         let variable_name = Self::usable_identifier(pairs.next().unwrap());
@@ -362,6 +371,7 @@ impl BpParse {
             Rule::conditional => Self::conditional(pair),
             Rule::while_loop => Self::while_loop(pair),
             Rule::for_loop => Self::for_loop(pair),
+            Rule::if_some => Self::if_some(pair),
             Rule::variable_reassignment => Self::variable_reassignment(pair),
             thing => unimplemented!("Unknown statement: {:?}", thing),
         }
@@ -384,7 +394,7 @@ impl BpParse {
             node = pairs.next().unwrap();
         }
 
-        let return_type = v_type!(identifier, node, return_type, pairs);
+        let return_type = v_type!(var_type, node, return_type, pairs);
 
         let block = Self::block(node);
 

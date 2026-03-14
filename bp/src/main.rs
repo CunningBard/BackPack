@@ -14,7 +14,15 @@ fn main() {
     let program = BpParse::data(&file);
     
     for construct in program.iter() {
-        println!("{:?}", construct);
+        match construct {
+            bpcore::ast::Construct::Function(f) => {
+                let args: Vec<_> = f.args.iter().map(|a| format!("{}: {}", a.name, a.var_type.var_type.type_name())).collect();
+                println!("[function] {}({})", f.name, args.join(", "));
+            }
+            bpcore::ast::Construct::Method(m) => {
+                println!("[route]    {} /{} -> {}Handler", m.method.method_name(), m.handler.path.path_str(), m.path);
+            }
+        }
     }
 
     // save to file, ./bp/test.go

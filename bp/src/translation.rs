@@ -7,6 +7,7 @@ const HTTP_ESSENTIALS: &str = r#"package main
 
 import (
 	"fmt"
+    "net"
 	"net/http"
     "strconv"
 )
@@ -134,7 +135,7 @@ impl ToGoCode for Function {
         let args_str = self
             .args
             .iter()
-            .map(|arg| format!("{} {}", arg.var_type.to_go_code(), arg.name))
+            .map(|arg| format!("{} {}", arg.name, arg.var_type.to_go_code()))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -444,6 +445,17 @@ impl ToGoCode for Statement {
             Statement::ForLoop { var, iter, body } => {
                 format!("for _, {} := range {} {}", var, iter.to_go_code(), body.to_go_code_formatted())
             }
+            Statement::IfSome { binding, source, some_body, none_body } => {
+                let opt_var = format!("_opt_{}", binding);
+                let binding_line = format!("{} := {}.Value", binding, opt_var);
+                let inner = format!("{}\n{}", binding_line, some_body.to_go_code());
+                let inner_block = format_go_block(&inner);
+                let head = format!("{} := {}\nif {}.Valid {}", opt_var, source.to_go_code(), opt_var, inner_block);
+                match none_body {
+                    Some(else_block) => format!("{} else {}", head.trim_end(), else_block.to_go_code_formatted()),
+                    None => head,
+                }
+            }
             Statement::VariableReassignment { variable_name: name, value } => {
                 format!("{} = {}", name, value.to_go_code())
             }
@@ -495,8 +507,8 @@ impl ToGoCode for Program {
                     let url = method.handler.path.to_go_code();
                     let handler_name = format!("{}Handler", method.path);
                     mux_registrations.push(format!(
-                        "\tmux.HandleFunc(\"{} /{}\", {})",
-                        method_str, url, handler_name
+                        "\tfmt.Println(\"[route] {} /{} -> {}\")\n\tmux.HandleFunc(\"{} /{}\", {})",
+                        method_str, url, handler_name, method_str, url, handler_name
                     ));
                 }
                 Construct::Function(func) => {
@@ -520,7 +532,7 @@ impl ToGoCode for Program {
         let mux_registrations = mux_registrations.join("\n");
 
         let main_func = format!(
-            "func main() {{\n\tmux := http.NewServeMux()\n\n{}\n\thttp.ListenAndServe(\":8989\", mux)\n}}",
+            "func main() {{\n\tmux := http.NewServeMux()\n\n{}\n\n\tvar listener net.Listener\n\tvar port int\n\tvar err error\n\tfor p := 8989; p <= 9000; p++ {{\n\t\taddr := fmt.Sprintf(\":%d\", p)\n\t\tlistener, err = net.Listen(\"tcp\", addr)\n\t\tif err == nil {{\n\t\t\tport = p\n\t\t\tbreak\n\t\t}}\n\t}}\n\tif listener == nil {{\n\t\tfmt.Println(\"Server failed to start: no open ports in range 8989-9000\")\n\t\treturn\n\t}}\n\n\tfmt.Printf(\"Starting server on :%d\\n\", port)\n\tif err := http.Serve(listener, mux); err != nil {{\n\t\tfmt.Println(\"Server stopped:\", err)\n\t}}\n}}",
             mux_registrations
         );
 

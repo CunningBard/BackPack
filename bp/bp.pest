@@ -102,6 +102,12 @@ for_loop = {
     "for" ~ identifier ~ "in" ~ expr ~ block
 }
 
+if_some = {
+    "if" ~ "Some" ~ "(" ~ identifier ~ ")" ~ "=" ~ expr ~ block ~
+    natural_newline* ~
+    ("else" ~ block)?
+}
+
 conditional = {
     if_statement ~  natural_newline* ~
     (else_if_statement ~ natural_newline*)*
@@ -114,6 +120,7 @@ statement = _{
     | (variable_reassignment ~ explicit_newline)
     | (response ~ explicit_newline)
     | (return_statement ~ explicit_newline)
+    | if_some
     | conditional
     | while_loop    | for_loop}
 
@@ -123,7 +130,7 @@ function = {
     ~ (typed_arg ~ ",")*
     ~ (typed_arg)? ~
     ")"
-    ~ ("->" ~ identifier)? ~ block
+    ~ ("->" ~ var_type)? ~ block
 }
 
 enclosed_path = {
@@ -137,7 +144,7 @@ path_specifier = {
 
 
 query = {
-    identifier ~ ":" ~ identifier
+    identifier ~ ":" ~ var_type
 }
 
 optional_query = {

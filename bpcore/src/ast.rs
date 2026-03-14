@@ -122,6 +122,12 @@ pub enum Statement {
         iter: Expression,
         body: Block,
     },
+    IfSome {
+        binding: String,
+        source: Expression,
+        some_body: Block,
+        none_body: Option<Block>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +138,18 @@ pub enum Type {
     Bool,
     List(Box<Type>),
     // Struct(String),
+}
+
+impl Type {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Type::Int => "int",
+            Type::String => "str",
+            Type::Float => "float",
+            Type::Bool => "bool",
+            Type::List(_) => "list",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +177,15 @@ pub struct UrlPath {
     pub path: Vec<PathType>
 }
 
+impl UrlPath {
+    pub fn path_str(&self) -> String {
+        self.path.iter().map(|p| match p {
+            PathType::Path(s) => s.clone(),
+            PathType::Variable(s) => format!("{{{}}}", s),
+        }).collect::<Vec<_>>().join("/")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Handler {
     pub path: UrlPath,
@@ -183,6 +210,18 @@ pub enum MethodType {
     Put,
     Delete,
     Patch,
+}
+
+impl MethodType {
+    pub fn method_name(&self) -> &'static str {
+        match self {
+            MethodType::Get => "GET",
+            MethodType::Post => "POST",
+            MethodType::Put => "PUT",
+            MethodType::Delete => "DELETE",
+            MethodType::Patch => "PATCH",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
