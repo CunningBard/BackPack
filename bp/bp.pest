@@ -4,13 +4,14 @@ new_line = _{natural_newline | explicit_newline}
 line_terminator = _{new_line | EOI}
 
 WHITESPACE = _{ " " | "\t" }
-COMMENT = _{ "//" ~ (!"\n" ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+COMMENT = _{ "//" ~ (!natural_newline ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 float = @{ ("-")? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
 integer = @{ "-"? ~ ASCII_DIGIT+ }
 bool = @{ "true" | "false" }
 string = @{ "\"" ~ (("\\\"" | !"\"") ~ ANY)* ~ "\"" }
 
 identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHA | "_" | ASCII_DIGIT)* }
+import_path = @{ (ASCII_ALPHANUMERIC | "_" | "/" | "." | "-")+ }
 
 number = @{ float | integer }
 
@@ -42,6 +43,16 @@ unary = { unary_op ~ term }
 
 list_literal = { "[" ~ natural_newline* ~ (expr ~ "," ~ natural_newline*)* ~ expr? ~ natural_newline* ~ "]" }
 
+struct_literal_field = { identifier ~ ":" ~ expr }
+struct_literal = {
+    "{" ~ natural_newline* ~
+    (struct_literal_field ~ "," ~ natural_newline*)* ~
+    (struct_literal_field ~ natural_newline*)? ~
+    "}"
+}
+
+typed_struct_literal = { identifier ~ struct_literal }
+
 term = {
     (
     unary
@@ -51,6 +62,8 @@ term = {
     | bool
     | function_call
     | list_literal
+    | typed_struct_literal
+    | struct_literal
     | usable_identifier
 //     | ("&" ~ identifier)
 //     | ("*" ~ identifier)
@@ -133,6 +146,17 @@ function = {
     ~ ("->" ~ var_type)? ~ block
 }
 
+struct_field = {
+    identifier ~ ":" ~ var_type ~ ","?
+}
+
+struct_decl = {
+    "struct" ~ identifier ~
+    "{" ~ new_line* ~
+    (new_line* ~ struct_field ~ new_line*)* ~
+    "}"
+}
+
 enclosed_path = {
     "{" ~ identifier ~ "}"
 }
@@ -192,9 +216,20 @@ block = {
 }
 
 construct = _{
-    function
+    import_stmt
+    | from_import_stmt
+    | function
     | method
+    | struct_decl
 //     | variable_assignment
+}
+
+import_stmt = {
+    "import" ~ import_path
+}
+
+from_import_stmt = {
+    "from" ~ import_path ~ "import" ~ identifier
 }
 
 instructions = _{

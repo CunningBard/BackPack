@@ -1,6 +1,9 @@
 use pest::iterators::Pair;
 use pest::Parser;
-use bpcore::ast::{Block, Construct, Expression, Function, Handler, Identifier, KeyType, Method, MethodType, PathType, Statement, Type, UrlPath, VarType};
+use bpcore::ast::{
+    Block, Construct, Expression, FromImport, Function, Handler, Identifier, Import, KeyType,
+    Method, MethodType, PathType, Statement, Struct, Type, UrlPath, VarType,
+};
 
 #[derive(Parser)]
 #[grammar = "bp.pest"]
@@ -75,7 +78,7 @@ impl BpParse {
                     "int" => Type::Int,
                     "float" => Type::Float,
                     "bool" => Type::Bool,
-                    identifier => unimplemented!("Unknown type: {}", identifier),
+                    identifier => Type::Struct(identifier.to_string()),
                 };
                 VarType {
                     pointer_count: 0,
@@ -96,6 +99,32 @@ impl BpParse {
             args,
         }
     }
+
+    pub fn struct_literal(pair: Pair<Rule>) -> Expression {
+        let fields = pair
+            .into_inner()
+            .map(|field| {
+                let mut field_parts = field.into_inner();
+                let key = field_parts.next().unwrap().as_str().to_string();
+                let value = Self::expr(field_parts.next().unwrap());
+                (key, value)
+            })
+            .collect();
+
+        Expression::StructLiteral(fields)
+    }
+
+    pub fn typed_struct_literal(pair: Pair<Rule>) -> Expression {
+        let mut parts = pair.into_inner();
+        let struct_name = parts.next().unwrap().as_str().to_string();
+        let fields = match Self::struct_literal(parts.next().unwrap()) {
+            Expression::StructLiteral(fields) => fields,
+            _ => unreachable!(),
+        };
+
+        Expression::TypedStructLiteral { struct_name, fields }
+    }
+
     pub fn term(pair: Pair<Rule>) -> Expression {
         let mut pairs = pair.into_inner();
         let current = pairs.next().unwrap();
@@ -127,6 +156,8 @@ impl BpParse {
                 let items = current.into_inner().map(Self::expr).collect();
                 Expression::List(items)
             }
+            Rule::typed_struct_literal => Self::typed_struct_literal(current),
+            Rule::struct_literal => Self::struct_literal(current),
             Rule::expr => Self::expr(current),
             expr_rule => unimplemented!("{:?}", expr_rule),
         };
@@ -503,6 +534,7 @@ impl BpParse {
         let mut url_path = None;
         let mut optional = vec![];
         let mut required = vec![];
+        let mut payload = vec![];
         let mut required_headers = vec![];
         let mut expected_headers = vec![];
 
@@ -552,7 +584,7 @@ impl BpParse {
 
         // json payload
         while pair.as_rule() == Rule::typed_arg {
-            required.push(Self::typed_arg(pair));
+            payload.push(Self::typed_arg(pair));
             pair = pairs.next().unwrap();
         }
 
@@ -565,11 +597,44 @@ impl BpParse {
                 path: url_path.unwrap(),
                 required_query_params: required,
                 optional_query_params: optional,
+                payload_params: payload,
                 required_headers,
                 expected_headers,
                 body,
             },
         }
+    }
+
+    pub fn struct_decl(pair: Pair<Rule>) -> Struct {
+        let mut pairs = pair.into_inner();
+        let name = pairs.next().unwrap().as_str().to_string();
+        let fields = pairs
+            .map(|field| {
+                let mut field_parts = field.into_inner();
+                let field_name = field_parts.next().unwrap().as_str().to_string();
+                let field_type = Self::var_type(field_parts.next().unwrap());
+                KeyType {
+                    name: field_name,
+                    var_type: field_type,
+                }
+            })
+            .collect();
+
+        Struct { name, fields }
+    }
+
+    pub fn import_stmt(pair: Pair<Rule>) -> Import {
+        let mut pairs = pair.into_inner();
+        let path = pairs.next().unwrap().as_str().to_string();
+        Import { path }
+    }
+
+    pub fn from_import_stmt(pair: Pair<Rule>) -> FromImport {
+        let mut pairs = pair.into_inner();
+        let path = pairs.next().unwrap().as_str().to_string();
+        let identifier = pairs.next().unwrap().as_str().to_string();
+
+        FromImport { path, identifier }
     }
 
     pub fn respond(pair: Pair<Rule>) -> Statement {
@@ -604,6 +669,18 @@ impl BpParse {
                     let method = Self::method(pair);
                     constructs.push(Construct::Method(method));
                 }
+                Rule::struct_decl => {
+                    let struct_decl = Self::struct_decl(pair);
+                    constructs.push(Construct::Struct(struct_decl));
+                }
+                Rule::import_stmt => {
+                    let import_stmt = Self::import_stmt(pair);
+                    constructs.push(Construct::Import(import_stmt));
+                }
+                Rule::from_import_stmt => {
+                    let from_import_stmt = Self::from_import_stmt(pair);
+                    constructs.push(Construct::FromImport(from_import_stmt));
+                }
                 Rule::EOI => {
                     break;
                 }
@@ -612,5 +689,108 @@ impl BpParse {
         }
 
         constructs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BpParse;
+    use bpcore::ast::{Construct, Expression, Statement, Type};
+
+    #[test]
+    fn parses_struct_decl_and_typed_literal() {
+        let source = r#"
+struct Person {
+    name: str,
+    age: int,
+}
+
+func make_person() -> Person {
+    let person: Person = Person { name: "jack", age: 5 };
+    return person;
+}
+"#;
+
+        let program = BpParse::data(source);
+        assert!(matches!(&program[0], Construct::Struct(_)));
+
+        let Construct::Function(func) = &program[1] else {
+            panic!("expected second construct to be a function");
+        };
+
+        let Statement::VariableAssignment { value, .. } = &func.body[0] else {
+            panic!("expected first statement to be a variable assignment");
+        };
+
+        match value {
+            Expression::TypedStructLiteral { struct_name, fields } => {
+                assert_eq!(struct_name, "Person");
+                assert_eq!(fields.len(), 2);
+            }
+            _ => panic!("expected typed struct literal"),
+        }
+    }
+
+    #[test]
+    fn method_typed_args_are_payload_not_query() {
+        let source = r#"
+struct Person {
+    name: str,
+}
+
+GET say_hello(person: Person) {
+    respond 200 person.name;
+}
+"#;
+
+        let program = BpParse::data(source);
+        let method = program
+            .iter()
+            .find_map(|c| match c {
+                Construct::Method(m) => Some(m),
+                _ => None,
+            })
+            .expect("expected one method");
+
+        assert!(method.handler.required_query_params.is_empty());
+        assert_eq!(method.handler.payload_params.len(), 1);
+        assert_eq!(method.handler.payload_params[0].name, "person");
+        assert!(matches!(
+            method.handler.payload_params[0].var_type.var_type,
+            Type::Struct(ref name) if name == "Person"
+        ));
+    }
+
+    #[test]
+    fn parses_import_constructs() {
+        let source = r#"
+import github.com/example/pkg
+from std/http import Client
+
+func test() {
+    print("ok");
+}
+"#;
+
+        let program = BpParse::data(source);
+        assert!(matches!(&program[0], Construct::Import(_)));
+        assert!(matches!(&program[1], Construct::FromImport(_)));
+    }
+
+    #[test]
+    fn parses_multiline_block_comment() {
+        let source = r#"
+/*
+this is a real
+multi-line comment
+*/
+func test() {
+    let name: str = "jack";
+}
+"#;
+
+        let program = BpParse::data(source);
+        assert_eq!(program.len(), 1);
+        assert!(matches!(&program[0], Construct::Function(_)));
     }
 }

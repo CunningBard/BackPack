@@ -1,11 +1,13 @@
 use bpcore::ast::{
     Block, Construct, Expression, Function, Identifier, KeyType, Method, MethodType, PathType,
     Program, Statement, Type, UrlPath, VarType,
+    Struct,
 };
 
 const HTTP_ESSENTIALS: &str = r#"package main
 
 import (
+    "encoding/json"
 	"fmt"
     "net"
 	"net/http"
@@ -72,6 +74,49 @@ pub fn function_call_translation(name: &Identifier, args: &[Expression]) -> Stri
     format!("{}({})", print_name, args_str)
 }
 
+fn to_go_exported_ident(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+        None => String::new(),
+    }
+}
+
+fn identifier_to_go_variable(name: &Identifier) -> String {
+    match name {
+        Identifier::Single(value) => value.clone(),
+        Identifier::DotIdentifier(parts) => {
+            if parts.len() <= 1 {
+                return parts.join(".");
+            }
+
+            let mut translated = Vec::with_capacity(parts.len());
+            translated.push(parts[0].clone());
+            translated.extend(parts.iter().skip(1).map(|p| to_go_exported_ident(p)));
+            translated.join(".")
+        }
+    }
+}
+
+fn status_identifier_to_go_constant(parts: &[String]) -> Option<&'static str> {
+    if parts.len() != 2 || parts[0] != "Status" {
+        return None;
+    }
+
+    match parts[1].as_str() {
+        "OK" => Some("http.StatusOK"),
+        "CREATED" => Some("http.StatusCreated"),
+        "NO_CONTENT" => Some("http.StatusNoContent"),
+        "BAD_REQUEST" => Some("http.StatusBadRequest"),
+        "UNAUTHORIZED" => Some("http.StatusUnauthorized"),
+        "FORBIDDEN" => Some("http.StatusForbidden"),
+        "NOT_FOUND" => Some("http.StatusNotFound"),
+        "CONFLICT" => Some("http.StatusConflict"),
+        "INTERNAL_SERVER_ERROR" => Some("http.StatusInternalServerError"),
+        _ => None,
+    }
+}
+
 impl ToGoCode for Expression {
     fn to_go_code(&self) -> String {
         match self {
@@ -79,7 +124,12 @@ impl ToGoCode for Expression {
             Expression::Float(val) => format!("{}", val),
             Expression::String(val) => format!("{}", val),
             Expression::Bool(val) => format!("{}", val),
-            Expression::Variable(val) => format!("{}", val),
+            Expression::Variable(val) => match val {
+                Identifier::DotIdentifier(parts) => status_identifier_to_go_constant(parts)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| identifier_to_go_variable(val)),
+                _ => identifier_to_go_variable(val),
+            },
 
             Expression::Addition { left, right } => format!("{} + {}", left.to_go_code(), right.to_go_code()),
             Expression::Subtraction { left, right } => format!("{} - {}", left.to_go_code(), right.to_go_code()),
@@ -107,6 +157,24 @@ impl ToGoCode for Expression {
                     .join(", ");
                 format!("{{{}}}", items_str)
             }
+            Expression::StructLiteral(fields) => {
+                let fields_str = fields
+                    .iter()
+                    .map(|(name, value)| format!("\"{}\": {}", name, value.to_go_code()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("map[string]any{{{}}}", fields_str)
+            }
+            Expression::TypedStructLiteral { struct_name, fields } => {
+                let fields_str = fields
+                    .iter()
+                    .map(|(field_name, field_value)| {
+                        format!("{}: {}", to_go_exported_ident(field_name), field_value.to_go_code())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}{{{}}}", struct_name, fields_str)
+            }
         }
     }
 }
@@ -119,7 +187,28 @@ impl ToGoCode for Type {
             Type::String => "string".to_string(),
             Type::Bool => "bool".to_string(),
             Type::List(inner) => format!("[]{}", inner.to_go_code()),
+            Type::Struct(name) => name.clone(),
         }
+    }
+}
+
+impl ToGoCode for Struct {
+    fn to_go_code(&self) -> String {
+        let fields = self
+            .fields
+            .iter()
+            .map(|field| {
+                format!(
+                    "\t{} {} `json:\"{}\"`",
+                    to_go_exported_ident(&field.name),
+                    field.var_type.to_go_code(),
+                    field.name
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!("type {} struct {{\n{}\n}}", self.name, fields)
     }
 }
 
@@ -205,6 +294,11 @@ impl ToGoCode for Method {
             body_parts.push(header_prelude);
         }
 
+        let payload_prelude = build_payload_prelude(&self.handler.payload_params);
+        if !payload_prelude.is_empty() {
+            body_parts.push(payload_prelude);
+        }
+
         let handler_body = self.handler.body.to_go_code();
         if !handler_body.is_empty() {
             body_parts.push(handler_body);
@@ -286,6 +380,53 @@ fn build_header_prelude(required_headers: &[String], expected_headers: &[(String
         lines.push(format!("\thttp.Error(w, \"header {} must be {}\", http.StatusBadRequest)", header, expected));
         lines.push("\treturn".to_string());
         lines.push("}".to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn build_payload_prelude(payload_params: &[KeyType]) -> String {
+    if payload_params.is_empty() {
+        return String::new();
+    }
+
+    if payload_params.len() == 1 {
+        let only = &payload_params[0];
+        if matches!(only.var_type.var_type, Type::Struct(_)) {
+            return format!(
+                "var {} {}\nif err := json.NewDecoder(r.Body).Decode(&{}); err != nil {{\n\thttp.Error(w, \"invalid json body\", http.StatusBadRequest)\n\treturn\n}}\n_ = {}",
+                only.name,
+                only.var_type.to_go_code(),
+                only.name,
+                only.name
+            );
+        }
+    }
+
+    let payload_struct_fields = payload_params
+        .iter()
+        .map(|arg| {
+            format!(
+                "\t{} {} `json:\"{}\"`",
+                to_go_exported_ident(&arg.name),
+                arg.var_type.to_go_code(),
+                arg.name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut lines = vec![
+        format!("var payload struct {{\n{}\n}}", payload_struct_fields),
+        "if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {".to_string(),
+        "\thttp.Error(w, \"invalid json body\", http.StatusBadRequest)".to_string(),
+        "\treturn".to_string(),
+        "}".to_string(),
+    ];
+
+    for arg in payload_params {
+        lines.push(format!("{} := payload.{}", arg.name, to_go_exported_ident(&arg.name)));
+        lines.push(format!("_ = {}", arg.name));
     }
 
     lines.join("\n")
@@ -377,6 +518,9 @@ fn query_param_lines(key: &KeyType, optional: bool) -> Vec<String> {
         Type::List(_) => {
             panic!("#QUERY param '{}' cannot be a list type", name);
         }
+        Type::Struct(_) => {
+            panic!("#QUERY param '{}' cannot be a struct type", name);
+        }
     }
 
     // Query variables are generated from specifiers and may be intentionally unused by handler logic.
@@ -410,6 +554,42 @@ impl ToGoCode for Statement {
                         var_type.to_go_code(),
                         inner.to_go_code(),
                         items_str
+                    );
+                }
+
+                if let (Type::Struct(struct_name), Expression::StructLiteral(fields)) = (&var_type.var_type, value) {
+                    let fields_str = fields
+                        .iter()
+                        .map(|(field_name, field_value)| {
+                            format!("{}: {}", to_go_exported_ident(field_name), field_value.to_go_code())
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    return format!(
+                        "var {} {} = {}{{{}}}",
+                        name,
+                        var_type.to_go_code(),
+                        struct_name,
+                        fields_str
+                    );
+                }
+
+                if let (Type::Struct(struct_name), Expression::TypedStructLiteral { fields, .. }) = (&var_type.var_type, value) {
+                    let fields_str = fields
+                        .iter()
+                        .map(|(field_name, field_value)| {
+                            format!("{}: {}", to_go_exported_ident(field_name), field_value.to_go_code())
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    return format!(
+                        "var {} {} = {}{{{}}}",
+                        name,
+                        var_type.to_go_code(),
+                        struct_name,
+                        fields_str
                     );
                 }
 
@@ -457,7 +637,7 @@ impl ToGoCode for Statement {
                 }
             }
             Statement::VariableReassignment { variable_name: name, value } => {
-                format!("{} = {}", name, value.to_go_code())
+                format!("{} = {}", identifier_to_go_variable(name), value.to_go_code())
             }
             Statement::Response { status_code, body } => {
                 format!(
@@ -488,6 +668,9 @@ impl ToGoCode for Construct {
         match self {
             Construct::Function(function) => function.to_go_code(),
             Construct::Method(method) => method.to_go_code(),
+            Construct::Struct(struct_decl) => struct_decl.to_go_code(),
+            Construct::Import(_) => String::new(),
+            Construct::FromImport(_) => String::new(),
         }
     }
 }
@@ -497,6 +680,8 @@ impl ToGoCode for Program {
         let mut handler_funcs = Vec::new();
         let mut mux_registrations = Vec::new();
         let mut regular_funcs = Vec::new();
+        let mut struct_decls = Vec::new();
+        let mut extra_imports = Vec::new();
 
         for construct in self {
             match construct {
@@ -514,8 +699,32 @@ impl ToGoCode for Program {
                 Construct::Function(func) => {
                     regular_funcs.push(func.to_go_code());
                 }
+                Construct::Struct(struct_decl) => {
+                    struct_decls.push(struct_decl.to_go_code());
+                }
+                Construct::Import(import_stmt) => {
+                    extra_imports.push(format!("import _ \"{}\"", import_stmt.path));
+                }
+                Construct::FromImport(from_import_stmt) => {
+                    extra_imports.push(format!(
+                        "import _ \"{}\" // from import: {}",
+                        from_import_stmt.path, from_import_stmt.identifier
+                    ));
+                }
             }
         }
+
+        let extra_imports = if extra_imports.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n\n", extra_imports.join("\n"))
+        };
+
+        let struct_decls = if struct_decls.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n\n", struct_decls.join("\n\n"))
+        };
 
         let regular_funcs = if regular_funcs.is_empty() {
             String::new()
@@ -536,6 +745,81 @@ impl ToGoCode for Program {
             mux_registrations
         );
 
-        format!("{}{}{}{}", HTTP_ESSENTIALS, regular_funcs, handler_funcs, main_func)
+        format!(
+            "{}{}{}{}{}{}",
+            HTTP_ESSENTIALS, extra_imports, struct_decls, regular_funcs, handler_funcs, main_func
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ToGoCode;
+    use crate::parser::BpParse;
+
+    #[test]
+    fn emits_struct_and_typed_literal_in_go() {
+        let source = r#"
+struct Person {
+    name: str,
+    age: int,
+}
+
+func make_person() -> Person {
+    let person: Person = Person { name: "jack", age: 5 };
+    return person;
+}
+"#;
+
+        let code = BpParse::data(source).to_go_code();
+        assert!(code.contains("type Person struct"));
+        assert!(code.contains("Name string `json:\"name\"`"));
+        assert!(code.contains("var person Person = Person{Name: \"jack\", Age: 5}"));
+    }
+
+    #[test]
+    fn emits_json_payload_decode_for_struct_arg() {
+        let source = r#"
+struct Person {
+    name: str,
+}
+
+GET say_hello(person: Person) {
+    respond 200 person.name;
+}
+"#;
+
+        let code = BpParse::data(source).to_go_code();
+        assert!(code.contains("var person Person"));
+        assert!(code.contains("json.NewDecoder(r.Body).Decode(&person)"));
+        assert!(code.contains("fmt.Fprint(w, person.Name)"));
+    }
+
+    #[test]
+    fn emits_status_constant_translation() {
+        let source = r#"
+GET health {
+    respond Status.NOT_FOUND "missing";
+}
+"#;
+
+        let code = BpParse::data(source).to_go_code();
+        assert!(code.contains("w.WriteHeader(http.StatusNotFound)"));
+    }
+
+    #[test]
+    fn emits_import_constructs() {
+        let source = r#"
+import github.com/example/pkg
+from std/http import Client
+
+GET health {
+    respond 200 "ok";
+}
+"#;
+
+        let code = BpParse::data(source).to_go_code();
+        assert!(code.contains("import _ \"github.com/example/pkg\""));
+        assert!(code.contains("import _ \"std/http\" // from import: Client"));
     }
 }

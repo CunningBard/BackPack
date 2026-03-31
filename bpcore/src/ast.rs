@@ -37,6 +37,11 @@ pub enum Expression {
         expr: Box<Expression>,
     },
     List(Vec<Expression>),
+    StructLiteral(Vec<(String, Expression)>),
+    TypedStructLiteral {
+        struct_name: String,
+        fields: Vec<(String, Expression)>,
+    },
     Addition {
         left: Box<Expression>,
         right: Box<Expression>,
@@ -137,7 +142,7 @@ pub enum Type {
     Float,
     Bool,
     List(Box<Type>),
-    // Struct(String),
+    Struct(String),
 }
 
 impl Type {
@@ -148,6 +153,7 @@ impl Type {
             Type::Float => "float",
             Type::Bool => "bool",
             Type::List(_) => "list",
+            Type::Struct(_) => "struct",
         }
     }
 }
@@ -191,6 +197,7 @@ pub struct Handler {
     pub path: UrlPath,
     pub required_query_params: Vec<KeyType>,
     pub optional_query_params: Vec<KeyType>,
+    pub payload_params: Vec<KeyType>,
     pub required_headers: Vec<String>,
     pub expected_headers: Vec<(String, String)>,
     pub body: Block
@@ -233,9 +240,29 @@ pub struct Function {
 }
 
 #[derive(Debug, Clone)]
+pub struct Struct {
+    pub name: String,
+    pub fields: Vec<KeyType>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Import {
+    pub path: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct FromImport {
+    pub path: String,
+    pub identifier: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Construct {
     Function(Function),
     Method(Method),
+    Struct(Struct),
+    Import(Import),
+    FromImport(FromImport),
     // GlobalVariable {
     //     name: String,
     //     var_type: Option<VarType>,
